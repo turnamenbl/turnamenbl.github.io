@@ -175,7 +175,13 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
         body: JSON.stringify({ password, supabaseUrl, supabaseAnonKey }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal menyimpan");
+      if (!res.ok) {
+        const msg = data.error || "Gagal menyimpan";
+        setConfigError(msg);
+        setConfigSuccess(null);
+        setSavingConfig(false);
+        return;
+      }
       setConfigSuccess("Konfigurasi tersimpan! Mengetes koneksi ke Supabase...");
       // Re-fetch config and test connection
       const cfg = await loadConfig();

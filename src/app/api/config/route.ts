@@ -1,3 +1,6 @@
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { appSettings } from "@/db/schema";
@@ -48,6 +51,7 @@ export async function GET() {
         supabaseUrl: null,
         supabaseAnonKey: null,
         fromEnv: false,
+        error: error instanceof Error ? error.message : String(error),
       },
       { status: 200 }
     );
@@ -66,7 +70,19 @@ export async function POST(request: Request) {
     // If env vars are set, do not allow overwriting via admin
     if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
       return NextResponse.json(
-        { error: "Supabase credentials di-set via environment variable (tidak bisa diubah dari admin panel)." },
+        {
+          error: "Supabase credentials dikelola lewat environment variable di Vercel. Tidak bisa diubah dari panel admin.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!process.env.DATABASE_URL) {
+      return NextResponse.json(
+        {
+          error:
+            "Penyimpanan via admin belum aktif. Set env var SUPABASE_URL dan SUPABASE_ANON_KEY di Vercel (disarankan), atau set DATABASE_URL di Vercel untuk mengaktifkan penyimpanan dari panel admin.",
+        },
         { status: 400 }
       );
     }
@@ -108,8 +124,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, configured: true });
   } catch (error) {
     console.error("Config update error:", error);
+    const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
-      { error: "Gagal menyimpan konfigurasi" },
+      { error: `Gagal menyimpan konfigurasi: ${msg}` },
       { status: 500 }
     );
   }
