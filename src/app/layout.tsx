@@ -5,6 +5,13 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Billiard Bracket Maker",
   description: "Buat bagan turnamen billiard sistem liga atau gugur",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "48x48", type: "image/x-icon" },
+      { url: "/favicon-48.png", sizes: "48x48", type: "image/png" },
+    ],
+    apple: "/favicon-48.png",
+  },
 };
 
 export default function RootLayout({
