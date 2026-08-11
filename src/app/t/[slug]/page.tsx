@@ -10,6 +10,9 @@ import {
   getTournamentBySlug,
   updateMatchScore,
   resetMatch,
+  updatePlayerName,
+  deletePlayer,
+  addPlayer,
 } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -181,6 +184,69 @@ export default function TournamentPage() {
     }
   };
 
+  // Player management (admin only)
+  const [showPlayerMgr, setShowPlayerMgr] = useState(false);
+  const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
+  const [editPlayerName, setEditPlayerName] = useState("");
+  const [newPlayerName, setNewPlayerName] = useState("");
+  const [playerBusy, setPlayerBusy] = useState(false);
+
+  const handleEditPlayer = async (playerId: string) => {
+    if (!supabase) return;
+    const trimmed = editPlayerName.trim();
+    if (!trimmed) {
+      alert("Nama pemain tidak boleh kosong");
+      return;
+    }
+    setPlayerBusy(true);
+    try {
+      await updatePlayerName(supabase, playerId, trimmed);
+      setEditingPlayerId(null);
+      await loadData(supabase);
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setPlayerBusy(false);
+    }
+  };
+
+  const handleDeletePlayer = async (playerId: string) => {
+    if (!supabase || !data) return;
+    const player = data.players.find((p) => p.id === playerId);
+    if (!confirm(`Hapus pemain "${player?.name}"? Semua pertandingan yang melibatkan pemain ini akan direset.`)) return;
+    setPlayerBusy(true);
+    try {
+      await deletePlayer(supabase, data.tournament.id, playerId);
+      await loadData(supabase);
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setPlayerBusy(false);
+    }
+  };
+
+  const handleAddPlayer = async () => {
+    if (!supabase || !data) return;
+    const trimmed = newPlayerName.trim();
+    if (!trimmed) {
+      alert("Nama pemain tidak boleh kosong");
+      return;
+    }
+    const originalCount = data.players.length;
+    if (confirm(`Menambah "${trimmed}" akan menambahkan ${originalCount} pertandingan baru.`)) {
+      setPlayerBusy(true);
+      try {
+        await addPlayer(supabase, data.tournament, trimmed);
+        setNewPlayerName("");
+        await loadData(supabase);
+      } catch (e: any) {
+        alert(e.message);
+      } finally {
+        setPlayerBusy(false);
+      }
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-4">
@@ -276,6 +342,103 @@ export default function TournamentPage() {
           isAdmin={isAdmin}
           onRequestAdmin={requestAdmin}
         />
+      )}
+
+      {isAdmin && (
+        <button
+          onClick={() => setShowPlayerMgr(true)}
+          className="fixed bottom-20 left-4 z-40 sm:bottom-4 flex items-center gap-2 bg-black/40 hover:bg-black/60 border border-white/10 hover:border-white/25 text-white/80 hover:text-white px-3 py-2 rounded-xl transition-all backdrop-blur-md text-xs font-bold uppercase tracking-wider"
+          title="Kelola Pemain"
+        >
+          <span>👥</span>
+          <span className="hidden sm:inline">Pemain</span>
+        </button>
+      )}
+
+      {showPlayerMgr && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setShowPlayerMgr(false)}>
+          <div className="w-full max-w-md rounded-2xl glass-strong p-6 space-y-5 shadow-2xl shadow-black/50 animate-scale-in max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center text-xl shadow-lg">
+                  👥
+                </div>
+                <div>
+                  <h3 className="font-black text-lg tracking-tight">Kelola Pemain</h3>
+                  <p className="text-white/50 text-xs">{data.players.length} pemain</p>
+                </div>
+              </div>
+              <button onClick={() => setShowPlayerMgr(false)} className="w-8 h-8 rounded-lg glass hover:bg-white/15 text-white/80 flex items-center justify-center transition-all">
+                ✕
+              </button>
+            </div>
+
+            {/* Add new player */}
+            {data.tournament.type === "league" && (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newPlayerName}
+                  onChange={(e) => setNewPlayerName(e.target.value)}
+                  placeholder="Nama pemain baru..."
+                  className="flex-1 bg-black/30 border border-white/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20 transition-all placeholder:text-white/30"
+                  onKeyDown={(e) => e.key === "Enter" && handleAddPlayer()}
+                />
+                <button
+                  onClick={handleAddPlayer}
+                  disabled={playerBusy || !newPlayerName.trim()}
+                  className="bg-gradient-to-r from-emerald-500 to-green-500 hover:brightness-110 disabled:opacity-50 text-white font-bold px-4 py-2 rounded-xl transition-all active:scale-95 text-sm shrink-0"
+                >
+                  + Tambah
+                </button>
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {data.players.map((p) => (
+                <div key={p.id} className="flex items-center gap-2 glass rounded-xl px-3 py-2">
+                  <span className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-xs font-bold text-white/60 shrink-0">
+                    {typeof p.seed === "number" ? p.seed : "•"}
+                  </span>
+                  {editingPlayerId === p.id ? (
+                    <>
+                      <input
+                        type="text"
+                        value={editPlayerName}
+                        onChange={(e) => setEditPlayerName(e.target.value)}
+                        className="flex-1 bg-black/40 border border-emerald-400/50 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
+                        autoFocus
+                        onKeyDown={(e) => e.key === "Enter" && handleEditPlayer(p.id)}
+                      />
+                      <button disabled={playerBusy} onClick={() => handleEditPlayer(p.id)} className="w-8 h-8 rounded-lg bg-emerald-500/30 hover:bg-emerald-500/50 text-emerald-200 flex items-center justify-center transition-all active:scale-95 shrink-0" title="Simpan">
+                        ✓
+                      </button>
+                      <button disabled={playerBusy} onClick={() => setEditingPlayerId(null)} className="w-8 h-8 rounded-lg glass hover:bg-white/15 text-white/70 flex items-center justify-center transition-all active:scale-95 shrink-0" title="Batal">
+                        ✕
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 text-sm font-semibold truncate">{p.name}</span>
+                      <button disabled={playerBusy} onClick={() => { setEditingPlayerId(p.id); setEditPlayerName(p.name); }} className="w-8 h-8 rounded-lg bg-blue-500/20 hover:bg-blue-500/40 text-blue-200 flex items-center justify-center transition-all active:scale-95 shrink-0" title="Edit nama">
+                        ✏️
+                      </button>
+                      <button disabled={playerBusy} onClick={() => handleDeletePlayer(p.id)} className="w-8 h-8 rounded-lg bg-red-500/20 hover:bg-red-500/40 text-red-200 flex items-center justify-center transition-all active:scale-95 shrink-0" title="Hapus pemain">
+                        🗑️
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {data.tournament.type === "tournament" && (
+              <p className="text-white/40 text-[11px] italic">
+                ✏️ Edit nama langsung update di bracket. Semua mereference pemain tetap aman.
+              </p>
+            )}
+          </div>
+        </div>
       )}
 
       {AdminBadge}

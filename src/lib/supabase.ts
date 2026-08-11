@@ -372,6 +372,108 @@ export async function deleteTournament(supabase: SupabaseClient, id: string) {
   if (tErr) throw new Error(tErr.message);
 }
 
+export async function updatePlayerName(
+  supabase: SupabaseClient,
+  playerId: string,
+  newName: string
+) {
+  const { error } = await supabase
+    .from("players")
+    .update({ name: newName.trim() })
+    .eq("id", playerId);
+  if (error) throw new Error(error.message);
+}
+
+export async function deletePlayer(
+  supabase: SupabaseClient,
+  tournamentId: string,
+  playerId: string
+) {
+  // Find all matches involving this player in this tournament
+  const { data: relatedMatches, error: fErr } = await supabase
+    .from("matches")
+    .select("*")
+    .eq("tournament_id", tournamentId)
+    .or(`player1_id.eq.${playerId},player2_id.eq.${playerId},winner_id.eq.${playerId}`);
+  if (fErr) throw new Error(fErr.message);
+
+  // Reset those matches and cascade reset chain
+  for (const m of relatedMatches || []) {
+    await resetMatch(supabase, m.id);
+  }
+
+  // Null out references
+  await supabase
+    .from("matches")
+    .update({ player1_id: null })
+    .eq("tournament_id", tournamentId)
+    .eq("player1_id", playerId);
+  await supabase
+    .from("matches")
+    .update({ player2_id: null })
+    .eq("tournament_id", tournamentId)
+    .eq("player2_id", playerId);
+  await supabase
+    .from("matches")
+    .update({ winner_id: null })
+    .eq("tournament_id", tournamentId)
+    .eq("winner_id", playerId);
+
+  const { error: dErr } = await supabase
+    .from("players")
+    .delete()
+    .eq("id", playerId);
+  if (dErr) throw new Error(dErr.message);
+
+  // Update player_count
+  const { count } = await supabase
+    .from("players")
+    .select("id", { count: "exact", head: true })
+    .eq("tournament_id", tournamentId);
+  await supabase
+    .from("tournaments")
+    .update({ player_count: count ?? 0 })
+    .eq("id", tournamentId);
+}
+
+export async function addPlayer(
+  supabase: SupabaseClient,
+  tournament: Tournament,
+  newName: string
+) {
+  // Get current players voor seed
+  const { data: existingPlayers } = await supabase
+    .from("players")
+    .select("seed")
+    .eq("tournament_id", tournament.id)
+    .order("seed", { ascending: false })
+    .limit(1);
+  const nextSeed = (existingPlayers?.[0]?.seed || 0) + 1;
+
+  const { data: newPlayer, error: pErr } = await supabase
+    .from("players")
+    .insert({
+      tournament_id: tournament.id,
+      name: newName.trim(),
+      seed: nextSeed,
+    })
+    .select()
+    .single();
+  if (pErr) throw new Error(pErr.message);
+
+  // Update player_count
+  const { count } = await supabase
+    .from("players")
+    .select("id", { count: "exact", head: true })
+    .eq("tournament_id", tournament.id);
+  await supabase
+    .from("tournaments")
+    .update({ player_count: count ?? 0 })
+    .eq("id", tournament.id);
+
+  return newPlayer as Player;
+}
+
 export async function updateMatchScore(
   supabase: SupabaseClient,
   matchId: string,
