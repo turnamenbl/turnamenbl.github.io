@@ -16,6 +16,7 @@ import {
 } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+// ===== Types =====
 type Player = {
   id: string;
   tournament_id: string;
@@ -51,6 +52,171 @@ type TournamentData = {
   players: Player[];
   matches: Match[];
 };
+
+// Search panel subcomponent (to forward useSearchParams safely)
+function SearchPanel({
+  matches,
+  players,
+  isAdmin,
+  onRequestAdmin,
+  openEdit,
+  onResetMatch,
+  searchActive,
+}: {
+  matches: Match[];
+  players: Player[];
+  isAdmin: boolean;
+  onRequestAdmin: () => void;
+  openEdit: (m: Match) => void;
+  onResetMatch: (matchId: string) => void;
+  searchActive: boolean;
+}) {
+  const [localQ, setLocalQ] = useState("");
+  const [flashMatchId, setFlashMatchId] = useState<string | null>(null);
+
+  const results = matches.filter((m) => {
+    const q = localQ.toLowerCase().trim();
+    if (!q) return false;
+    const p1 = players.find((p) => p.id === m.player1_id)?.name.toLowerCase() || "";
+    const p2 = players.find((p) => p.id === m.player2_id)?.name.toLowerCase() || "";
+    return p1.includes(q) || p2.includes(q);
+  });
+
+  const handleNavigate = (matchId: string) => {
+    const match = matches.find((m: Match) => m.id === matchId);
+    if (!match) return;
+
+    const performAction = () => {
+      setFlashMatchId(matchId);
+      const el = document.getElementById(`match-${matchId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      setTimeout(() => {
+        if (!isAdmin) {
+          onRequestAdmin();
+        } else if (match.completed) {
+          onResetMatch(matchId);
+        } else {
+          openEdit(match);
+        }
+      }, 250);
+    };
+
+    // Try to find the DOM element first
+    const el = document.getElementById(`match-${matchId}`);
+    if (el) {
+      performAction();
+      return;
+    }
+
+    // For league: locate the round tab and click it first, then retry
+    const roundBtn = document.querySelector(`[data-round-tab="${match.round}"]`) as HTMLElement | null;
+    if (roundBtn) {
+      roundBtn.click();
+      setTimeout(performAction, 100);
+    }
+  };
+
+  // Clear flash after a moment
+  useEffect(() => {
+    if (!flashMatchId) return;
+    const timer = setTimeout(() => setFlashMatchId(null), 1800);
+    return () => clearTimeout(timer);
+  }, [flashMatchId]);
+
+  if (!searchActive) return null;
+
+  return (
+    <div className="rounded-2xl glass-strong overflow-hidden shadow-xl shadow-black/30 animate-scale-in">
+      <div className="p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🔍</span>
+          <input
+            type="search"
+            value={localQ}
+            onChange={(e) => setLocalQ(e.target.value)}
+            placeholder="Cari nama pemain…"
+            autoFocus
+            className="flex-1 bg-black/30 border border-white/15 rounded-xl px-4 py-2.5 focus:outline-none focus:border-emerald-400/60 focus:ring-4 focus:ring-emerald-400/20 transition-all placeholder:text-white/30"
+          />
+        </div>
+        {localQ.trim() && (
+          <div className="text-xs text-white/50">
+            {results.length === 0
+              ? "Tidak ditemukan"
+              : `${results.length} pertandingan ditemukan`}
+          </div>
+        )}
+        {results.length > 0 && (
+          <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+            {results.map((m) => {
+              const p1 = players.find((p) => p.id === m.player1_id);
+              const p2 = players.find((p) => p.id === m.player2_id);
+              const isFlashing = flashMatchId === m.id;
+              return (
+                <div key={m.id} className="space-y-1.5">
+                  <button
+                    id={`match-${m.id}`}
+                    onClick={() => handleNavigate(m.id)}
+                    className={`w-full text-left glass rounded-xl p-3 transition-all group border ${isFlashing
+                      ? "border-emerald-400 bg-emerald-500/20 shadow-lg shadow-emerald-500/30 animate-pulse-glow"
+                      : "border-white/10 hover:border-emerald-400/30 hover:bg-white/10"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-white/50 font-bold">R{ m.round }-{ m.position }</span>
+                      {!isAdmin && (
+                        <span className="text-[9px] text-white/30 group-hover:text-white/60">
+                          🔒
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm font-bold mt-1">
+                      <span
+                        className={
+                          m.winner_id === p1?.id
+                            ? "text-emerald-300"
+                            : m.winner_id === null && m.completed
+                            ? "text-white/70"
+                            : "text-white"
+                        }
+                      >
+                        {p1?.name || "?"}
+                      </span>
+                      <span className="text-white/40 mx-1.5 text-xs">vs</span>
+                      <span
+                        className={
+                          m.winner_id === p2?.id
+                            ? "text-emerald-300"
+                            : m.winner_id === null && m.completed
+                            ? "text-white/70"
+                            : "text-white"
+                        }
+                      >
+                        {p2?.name || "?"}
+                      </span>
+                    </div>
+                    {m.completed ? (
+                      <div className="text-xs text-white/60 mt-1">
+                        {m.player1_score} - {m.player2_score}
+                        {m.winner_id === null && " (seri)"}
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-white/40 mt-1">
+                        {isAdmin ? "Klik masukkan skor" : "Belum dimainkan"}
+                      </div>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const ADMIN_PASSWORD = "admin123";
 const ADMIN_SESSION_KEY = "bracket_admin_mode";
@@ -191,6 +357,9 @@ export default function TournamentPage() {
   const [newPlayerName, setNewPlayerName] = useState("");
   const [playerBusy, setPlayerBusy] = useState(false);
 
+  // Search matches
+  const [searchOpen, setSearchOpen] = useState(false);
+
   const handleEditPlayer = async (playerId: string) => {
     if (!supabase) return;
     const trimmed = editPlayerName.trim();
@@ -322,6 +491,8 @@ export default function TournamentPage() {
           setEditingMatch={setEditingMatch}
           isAdmin={isAdmin}
           onRequestAdmin={requestAdmin}
+          searchOpen={searchOpen}
+          setSearchOpen={setSearchOpen}
         />
       ) : (
         <TournamentView
@@ -341,8 +512,31 @@ export default function TournamentPage() {
           setEditingMatch={setEditingMatch}
           isAdmin={isAdmin}
           onRequestAdmin={requestAdmin}
+          searchOpen={searchOpen}
+          setSearchOpen={setSearchOpen}
         />
       )}
+
+      {isAdmin && (
+        <button
+          onClick={() => setShowPlayerMgr(true)}
+          className="fixed bottom-20 left-4 z-40 sm:bottom-4 flex items-center gap-2 bg-black/40 hover:bg-black/60 border border-white/10 hover:border-white/25 text-white/80 hover:text-white px-3 py-2 rounded-xl transition-all backdrop-blur-md text-xs font-bold uppercase tracking-wider"
+          title="Kelola Pemain"
+        >
+          <span>👥</span>
+          <span className="hidden sm:inline">Pemain</span>
+        </button>
+      )}
+
+      <SearchPanel
+        matches={matches}
+        players={players}
+        isAdmin={isAdmin}
+        onRequestAdmin={requestAdmin}
+        openEdit={(m) => { setSearchOpen(false); openEdit(m); }}
+        onResetMatch={(id) => { setSearchOpen(false); handleResetMatch(id); }}
+        searchActive={searchOpen}
+      />
 
       {isAdmin && (
         <button
@@ -516,6 +710,8 @@ function LeagueView({
   setEditingMatch,
   isAdmin,
   onRequestAdmin,
+  searchOpen,
+  setSearchOpen,
 }: any) {
   const rounds = Array.from(
     new Set<number>(matches.map((m: Match) => m.round))
@@ -565,9 +761,18 @@ function LeagueView({
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
         <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border border-emerald-400/30 text-emerald-200 text-xs font-bold px-3 py-1 rounded-full">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            🏆 LIGA ROUND-ROBIN
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="inline-flex items-center gap-2 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border border-emerald-400/30 text-emerald-200 text-xs font-bold px-3 py-1 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              🏆 LIGA ROUND-ROBIN
+            </div>
+            <button
+              onClick={() => setSearchOpen(!searchOpen)}
+              className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full transition-all ${searchOpen ? "bg-emerald-500/30 text-emerald-200 border border-emerald-400/40" : "glass hover:bg-white/15 text-white/70"}`}
+              title="Cari pertandingan"
+            >
+              🔍 Cari
+            </button>
           </div>
           <h1 className="text-3xl sm:text-4xl font-black tracking-tight">{tournament.name}</h1>
           <p className="text-white/50 text-sm">
@@ -689,7 +894,7 @@ function LeagueView({
       {/* Matches */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {roundMatches.map((m: Match, idx: number) => (
-          <div key={m.id} className="animate-slide-up" style={{ animationDelay: `${idx * 40}ms` }}>
+          <div key={m.id} id={`match-${m.id}`} className="animate-slide-up scroll-mt-24" style={{ animationDelay: `${idx * 40}ms` }}>
             <MatchCard
               match={m}
               p1={playerById(m.player1_id, players)}
@@ -733,6 +938,8 @@ function TournamentView({
   setEditingMatch,
   isAdmin,
   onRequestAdmin,
+  searchOpen,
+  setSearchOpen,
 }: any) {
   const rounds = Array.from(
     new Set<number>(matches.map((m: Match) => m.round))
@@ -770,9 +977,18 @@ function TournamentView({
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
         <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-400/30 text-amber-200 text-xs font-bold px-3 py-1 rounded-full">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-            🎯 SISTEM GUGUR
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="inline-flex items-center gap-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-400/30 text-amber-200 text-xs font-bold px-3 py-1 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              🎯 SISTEM GUGUR
+            </div>
+            <button
+              onClick={() => setSearchOpen(!searchOpen)}
+              className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full transition-all ${searchOpen ? "bg-amber-500/30 text-amber-200 border border-amber-400/40" : "glass hover:bg-white/15 text-white/70"}`}
+              title="Cari pertandingan"
+            >
+              🔍 Cari
+            </button>
           </div>
           <h1 className="text-3xl sm:text-4xl font-black tracking-tight">{tournament.name}</h1>
           <p className="text-white/50 text-sm">
@@ -825,7 +1041,7 @@ function TournamentView({
                 </div>
                 <div className="flex flex-col flex-1" style={{ gap: `${matchGap}px` }}>
                   {rMatches.map((m: Match) => (
-                    <div key={m.id} className="w-60 sm:w-64">
+                    <div key={m.id} id={`match-${m.id}`} className="w-60 sm:w-64 scroll-mt-24">
                       <BracketMatch
                         match={m}
                         p1={playerById(m.player1_id, players)}
